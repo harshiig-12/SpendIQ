@@ -3,7 +3,7 @@ build/
 build-linux/
 cmake-build-*/
 
-# Qt and CMake
+# CMake
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
