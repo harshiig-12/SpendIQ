@@ -25,7 +25,8 @@ QFrame* createCard(
     const QString& title,
     const QString& amount,
     const QString& subtitle,
-    const QString& accent = "#34D399")
+    const QString& accent = "#34D399",
+    QLabel** valueOutput = nullptr)
 {
     auto* card = new QFrame;
     card->setObjectName("statCard");
@@ -41,6 +42,10 @@ QFrame* createCard(
     auto* value = new QLabel(amount);
     value->setObjectName("cardValue");
     value->setStyleSheet("color: " + accent + ";");
+
+    if (valueOutput != nullptr) {
+        *valueOutput = value;
+    }
 
     auto* detail = new QLabel(subtitle);
     detail->setObjectName("mutedText");
@@ -174,27 +179,35 @@ int main(int argc, char *argv[])
 
     mainLayout->addLayout(header);
 
-    // Summary cards
+    // Summary cards. Their value labels are retained so SQLite totals
+    // can refresh them whenever transactions change.
+    QLabel* totalBalanceValue = nullptr;
+    QLabel* totalIncomeValue = nullptr;
+    QLabel* totalExpensesValue = nullptr;
+    QLabel* monthlySavingsValue = nullptr;
+
     auto* cards = new QGridLayout;
     cards->setSpacing(16);
 
     cards->addWidget(
         createCard("TOTAL BALANCE", "₹ 0.00",
-                   "Your current net balance"), 0, 0);
+                   "Your current net balance", "#34D399",
+                   &totalBalanceValue), 0, 0);
 
     cards->addWidget(
         createCard("TOTAL INCOME", "₹ 0.00",
-                   "Income recorded this month"), 0, 1);
+                   "Income recorded this month", "#34D399",
+                   &totalIncomeValue), 0, 1);
 
     cards->addWidget(
         createCard("TOTAL EXPENSES", "₹ 0.00",
-                   "Expenses recorded this month",
-                   "#F87171"), 0, 2);
+                   "Expenses recorded this month", "#F87171",
+                   &totalExpensesValue), 0, 2);
 
     cards->addWidget(
         createCard("MONTHLY SAVINGS", "₹ 0.00",
-                   "Income minus expenses",
-                   "#60A5FA"), 0, 3);
+                   "Income minus expenses", "#60A5FA",
+                   &monthlySavingsValue), 0, 3);
 
     mainLayout->addLayout(cards);
 
@@ -288,6 +301,54 @@ int main(int argc, char *argv[])
     table->setAlternatingRowColors(false);
     table->setMinimumHeight(130);
 
+    // Recalculate the summary cards from the saved SQLite transactions.
+    auto refreshDashboardTotals = [&]() {
+        const QList<Transaction> records =
+            transactionService.getAllTransactions();
+
+        double allTimeIncome = 0.0;
+        double allTimeExpenses = 0.0;
+        double currentMonthIncome = 0.0;
+        double currentMonthExpenses = 0.0;
+
+        const QDate today = QDate::currentDate();
+
+        for (const Transaction& transaction : records) {
+            if (transaction.type == TransactionType::Income) {
+                allTimeIncome += transaction.amount;
+
+                if (transaction.date.month() == today.month() &&
+                    transaction.date.year() == today.year()) {
+                    currentMonthIncome += transaction.amount;
+                }
+            } else {
+                allTimeExpenses += transaction.amount;
+
+                if (transaction.date.month() == today.month() &&
+                    transaction.date.year() == today.year()) {
+                    currentMonthExpenses += transaction.amount;
+                }
+            }
+        }
+
+        const double totalBalance = allTimeIncome - allTimeExpenses;
+        const double monthlySavings =
+            currentMonthIncome - currentMonthExpenses;
+
+        totalBalanceValue->setText(
+            "₹ " + QString::number(totalBalance, 'f', 2)
+        );
+        totalIncomeValue->setText(
+            "₹ " + QString::number(currentMonthIncome, 'f', 2)
+        );
+        totalExpensesValue->setText(
+            "₹ " + QString::number(currentMonthExpenses, 'f', 2)
+        );
+        monthlySavingsValue->setText(
+            "₹ " + QString::number(monthlySavings, 'f', 2)
+        );
+    };
+
     // Load the latest transactions from SQLite into the dashboard table.
     auto refreshTransactions = [&]() {
         const QList<Transaction> records =
@@ -338,9 +399,11 @@ int main(int argc, char *argv[])
 
             table->setItem(row, 3, amountItem);
         }
+
+        refreshDashboardTotals();
     };
 
-    // Populate the dashboard with previously saved transactions.
+    // Populate the dashboard and summary cards from saved transactions.
     refreshTransactions();
 
     recentLayout->addLayout(recentHeading);
