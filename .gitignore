@@ -66,3 +66,20 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Qt Creator
+.qtcreator/
+*.user
+*.user.*
+
+# Local database files
+database/*.db
+database/*.sqlite
+database/*.sqlite3
+
+# IDE settings
+.vscode/
+
+# Operating system
+.DS_Store
+Thumbs.db
