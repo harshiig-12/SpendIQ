@@ -1,0 +1,28 @@
+# Build directories
+build/
+build-linux/
+cmake-build-*/
+
+# Qt and CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+.ninja_*
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE settings
+.vscode/
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# System files
+.DS_Store
+Thumbs.db
