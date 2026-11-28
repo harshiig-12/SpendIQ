@@ -17,7 +17,11 @@
 #include <QMessageBox>
 #include <QTableWidgetItem>
 #include <QColor>
-
+#include <QLineEdit>
+#include <QComboBox>
+#include <QStackedWidget>
+#include <QStyle>
+#include <functional>
 #include "database/DatabaseManager.h"
 #include "services/TransactionService.h"
 #include "ui/Transactions/TransactionDialog.h"
@@ -411,45 +415,345 @@ int main(int argc, char *argv[])
 
     mainLayout->addWidget(recentPanel, 1);
 
-    // Navigation feedback
+    // Full Transaction History page
+    auto* transactionPage = new QWidget;
+    transactionPage->setObjectName("mainArea");
+
+    auto* historyLayout = new QVBoxLayout(transactionPage);
+    historyLayout->setContentsMargins(32, 26, 32, 26);
+    historyLayout->setSpacing(20);
+
+    auto* historyHeader = new QHBoxLayout;
+    auto* historyHeadingBox = new QVBoxLayout;
+
+    auto* historyTitle = new QLabel("Transaction History");
+    historyTitle->setObjectName("pageTitle");
+
+    auto* historySubtitle = new QLabel(
+        "Review, search and manage all your income and expenses."
+    );
+    historySubtitle->setObjectName("mutedText");
+
+    historyHeadingBox->addWidget(historyTitle);
+    historyHeadingBox->addWidget(historySubtitle);
+
+    auto* historyDate = new QLabel(
+        QDate::currentDate().toString("dddd, dd MMMM yyyy")
+    );
+    historyDate->setObjectName("dateLabel");
+
+    historyHeader->addLayout(historyHeadingBox);
+    historyHeader->addStretch();
+    historyHeader->addWidget(historyDate);
+    historyLayout->addLayout(historyHeader);
+
+    auto* historyPanel = new QFrame;
+    historyPanel->setObjectName("panel");
+
+    auto* historyPanelLayout = new QVBoxLayout(historyPanel);
+    historyPanelLayout->setContentsMargins(22, 22, 22, 22);
+    historyPanelLayout->setSpacing(16);
+
+    auto* filterRow = new QHBoxLayout;
+    filterRow->setSpacing(12);
+
+    auto* searchInput = new QLineEdit;
+    searchInput->setPlaceholderText("Search transactions by title...");
+    searchInput->setClearButtonEnabled(true);
+
+    auto* typeFilter = new QComboBox;
+    typeFilter->addItems({"All Types", "Income", "Expense"});
+
+    auto* categoryFilter = new QComboBox;
+    categoryFilter->addItems({
+        "All Categories", "Food", "Transport", "Shopping",
+        "Bills", "Entertainment", "Salary", "Healthcare",
+        "Education", "Other"
+    });
+
+    auto* addTransactionButton = new QPushButton("+  Add Transaction");
+    addTransactionButton->setObjectName("primaryButton");
+    addTransactionButton->setCursor(Qt::PointingHandCursor);
+    addTransactionButton->setMinimumHeight(42);
+
+    filterRow->addWidget(searchInput, 2);
+    filterRow->addWidget(typeFilter, 1);
+    filterRow->addWidget(categoryFilter, 1);
+    filterRow->addWidget(addTransactionButton);
+
+    auto* historyTable = new QTableWidget(0, 6);
+    historyTable->setHorizontalHeaderLabels({
+        "DESCRIPTION", "CATEGORY", "TYPE", "DATE", "AMOUNT", "ACTION"
+    });
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        0, QHeaderView::Stretch
+    );
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        1, QHeaderView::ResizeToContents
+    );
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        2, QHeaderView::ResizeToContents
+    );
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        3, QHeaderView::ResizeToContents
+    );
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        4, QHeaderView::ResizeToContents
+    );
+    historyTable->horizontalHeader()->setSectionResizeMode(
+        5, QHeaderView::Fixed
+    );
+    historyTable->setColumnWidth(5, 100);
+    historyTable->verticalHeader()->setVisible(false);
+    historyTable->verticalHeader()->setDefaultSectionSize(48);
+    historyTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    historyTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    historyTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    historyTable->setShowGrid(false);
+    historyTable->setMinimumHeight(420);
+
+    auto* historyEmpty = new QLabel(
+        "No transactions match your search or filters."
+    );
+    historyEmpty->setObjectName("emptyState");
+    historyEmpty->setAlignment(Qt::AlignCenter);
+    historyEmpty->setMinimumHeight(220);
+    historyEmpty->setVisible(false);
+
+    historyPanelLayout->addLayout(filterRow);
+    historyPanelLayout->addWidget(historyTable, 1);
+    historyPanelLayout->addWidget(historyEmpty);
+    historyLayout->addWidget(historyPanel, 1);
+
+    // The central stack switches between Overview and Transaction History.
+    auto* pageStack = new QStackedWidget;
+    pageStack->addWidget(mainArea);
+    pageStack->addWidget(transactionPage);
+
+    // Rebuild the history table from SQLite and apply the active filters.
+    std::function<void()> refreshTransactionHistory;
+
+refreshTransactionHistory = [&]() {
+        const QList<Transaction> records =
+            transactionService.getAllTransactions();
+
+        const QString searchText = searchInput->text().trimmed();
+        const QString selectedType = typeFilter->currentText();
+        const QString selectedCategory = categoryFilter->currentText();
+
+        historyTable->setRowCount(0);
+
+        for (const Transaction& transaction : records) {
+            if (!searchText.isEmpty() &&
+                !transaction.title.contains(searchText, Qt::CaseInsensitive)) {
+                continue;
+            }
+
+            const QString transactionType =
+                transaction.type == TransactionType::Income
+                    ? "Income" : "Expense";
+
+            if (selectedType != "All Types" &&
+                transactionType != selectedType) {
+                continue;
+            }
+
+            if (selectedCategory != "All Categories" &&
+                transaction.category != selectedCategory) {
+                continue;
+            }
+
+            const int row = historyTable->rowCount();
+            historyTable->insertRow(row);
+
+            historyTable->setItem(
+                row, 0, new QTableWidgetItem(transaction.title)
+            );
+            historyTable->setItem(
+                row, 1, new QTableWidgetItem(transaction.category)
+            );
+            historyTable->setItem(
+                row, 2, new QTableWidgetItem(transactionType)
+            );
+            historyTable->setItem(
+                row, 3,
+                new QTableWidgetItem(
+                    transaction.date.toString("dd MMM yyyy")
+                )
+            );
+
+            const QString amountText =
+                (transaction.type == TransactionType::Income
+                    ? "+ ₹ " : "- ₹ ")
+                + QString::number(transaction.amount, 'f', 2);
+
+            auto* amountItem = new QTableWidgetItem(amountText);
+            amountItem->setTextAlignment(
+                Qt::AlignRight | Qt::AlignVCenter
+            );
+            amountItem->setForeground(
+                QColor(transaction.type == TransactionType::Income
+                    ? "#34D399" : "#F87171")
+            );
+            historyTable->setItem(row, 4, amountItem);
+
+            auto* deleteButton = new QPushButton("Delete");
+            deleteButton->setObjectName("deleteButton");
+            deleteButton->setCursor(Qt::PointingHandCursor);
+
+            QObject::connect(
+                deleteButton, &QPushButton::clicked,
+                [&, transactionId = transaction.id]() {
+QMessageBox confirmBox(&window);
+
+confirmBox.setWindowTitle("Delete Transaction");
+confirmBox.setText(
+    "Are you sure you want to permanently delete this transaction?"
+);
+confirmBox.setIcon(QMessageBox::Warning);
+
+confirmBox.setStandardButtons(
+    QMessageBox::Yes | QMessageBox::No
+);
+
+confirmBox.setDefaultButton(QMessageBox::No);
+
+confirmBox.setStyleSheet(R"(
+    QMessageBox {
+        background-color: #0B1120;
+        color: #E2E8F0;
+    }
+
+    QLabel {
+        color: #E2E8F0;
+        font-size: 13px;
+    }
+
+    QPushButton {
+        background-color: #1E293B;
+        color: #E2E8F0;
+        border: 1px solid #334155;
+        border-radius: 6px;
+        padding: 8px 20px;
+        min-width: 65px;
+    }
+
+    QPushButton:hover {
+        background-color: #334155;
+    }
+
+    QPushButton:default {
+        border: 1px solid #34D399;
+    }
+)");
+
+const auto answer = confirmBox.exec();
+
+                    if (answer != QMessageBox::Yes) {
+                        return;
+                    }
+
+                    if (transactionService.deleteTransaction(transactionId)) {
+                        refreshTransactions();
+                        refreshTransactionHistory();
+                        window.statusBar()->showMessage(
+                            "Transaction deleted successfully.", 4000
+                        );
+                    } else {
+                        QMessageBox::warning(
+                            &window,
+                            "Delete Failed",
+                            "Could not delete this transaction."
+                        );
+                    }
+                }
+            );
+
+            historyTable->setCellWidget(row, 5, deleteButton);
+        }
+
+        const bool hasResults = historyTable->rowCount() > 0;
+        historyTable->setVisible(hasResults);
+        historyEmpty->setVisible(!hasResults);
+    };
+
+    // Initial population of both transaction views.
+    refreshTransactionHistory();
+
+    QObject::connect(
+        searchInput, &QLineEdit::textChanged,
+        [&](const QString&) { refreshTransactionHistory(); }
+    );
+    QObject::connect(
+        typeFilter, &QComboBox::currentTextChanged,
+        [&](const QString&) { refreshTransactionHistory(); }
+    );
+    QObject::connect(
+        categoryFilter, &QComboBox::currentTextChanged,
+        [&](const QString&) { refreshTransactionHistory(); }
+    );
+
+    // Navigation and active sidebar styling
+    auto setActiveNavigation = [&](QPushButton* activeButton) {
+        for (QPushButton* button : {
+                 overview, transactions, budgets, analytics, settings
+             }) {
+            button->setObjectName(
+                button == activeButton ? "activeNav" : "navButton"
+            );
+            button->style()->unpolish(button);
+            button->style()->polish(button);
+        }
+    };
+
+    QObject::connect(overview, &QPushButton::clicked, [&]() {
+        pageStack->setCurrentWidget(mainArea);
+        setActiveNavigation(overview);
+        pageTitle->setText("Overview");
+    });
+
+    QObject::connect(transactions, &QPushButton::clicked, [&]() {
+        pageStack->setCurrentWidget(transactionPage);
+        setActiveNavigation(transactions);
+        refreshTransactionHistory();
+    });
+
     auto showComingSoon = [&window](const QString& page) {
         window.statusBar()->showMessage(
             page + " module is coming soon."
         );
     };
 
-    QObject::connect(transactions, &QPushButton::clicked,
-        [&]() {
-            TransactionDialog dialog(&window);
+    QObject::connect(addTransactionButton, &QPushButton::clicked, [&]() {
+        TransactionDialog dialog(&window);
 
-            if (dialog.exec() == QDialog::Accepted) {
-                const Transaction transaction =
-                    dialog.getTransaction();
+        if (dialog.exec() == QDialog::Accepted) {
+            const Transaction transaction = dialog.getTransaction();
 
-                if (transaction.title.trimmed().isEmpty()) {
-                    QMessageBox::warning(
-                        &window,
-                        "Missing Title",
-                        "Please enter a transaction title."
-                    );
-                    return;
-                }
-
-                if (transactionService.addTransaction(transaction)) {
-                    refreshTransactions();
-
-                    window.statusBar()->showMessage(
-                        "Transaction saved successfully!", 4000
-                    );
-                } else {
-                    QMessageBox::warning(
-                        &window,
-                        "Save Failed",
-                        "Could not save the transaction to the database."
-                    );
-                }
+            if (transaction.title.trimmed().isEmpty()) {
+                QMessageBox::warning(
+                    &window,
+                    "Missing Title",
+                    "Please enter a transaction title."
+                );
+                return;
             }
-        });
+
+            if (transactionService.addTransaction(transaction)) {
+                refreshTransactions();
+                refreshTransactionHistory();
+                window.statusBar()->showMessage(
+                    "Transaction saved successfully!", 4000
+                );
+            } else {
+                QMessageBox::warning(
+                    &window,
+                    "Save Failed",
+                    "Could not save the transaction to the database."
+                );
+            }
+        }
+    });
 
     QObject::connect(budgets, &QPushButton::clicked,
         [&]() { showComingSoon("Budgets"); });
@@ -460,9 +764,9 @@ int main(int argc, char *argv[])
     QObject::connect(settings, &QPushButton::clicked,
         [&]() { showComingSoon("Settings"); });
 
-        // Add sidebar and dashboard to the main layout
-root->addWidget(sidebar);
-root->addWidget(mainArea, 1);
+    // Add sidebar and stacked content pages to the main layout
+    root->addWidget(sidebar);
+    root->addWidget(pageStack, 1);
     window.setCentralWidget(central);
 
     window.setStyleSheet(R"(
@@ -566,6 +870,52 @@ root->addWidget(mainArea, 1);
             color: #64748B;
             background-color: #172235;
             border-radius: 9px;
+        }
+
+        QLineEdit, QComboBox {
+            background-color: #172235;
+            color: #E2E8F0;
+            border: 1px solid #334155;
+            border-radius: 7px;
+            padding: 10px;
+            min-height: 20px;
+        }
+
+        QLineEdit:focus, QComboBox:focus {
+            border: 1px solid #34D399;
+        }
+
+        QComboBox QAbstractItemView {
+            background-color: #1E293B;
+            color: #E2E8F0;
+            selection-background-color: #153A35;
+            selection-color: #34D399;
+        }
+
+        QPushButton#primaryButton {
+            background-color: #059669;
+            color: white;
+            border: none;
+            border-radius: 7px;
+            padding: 10px 16px;
+            font-weight: bold;
+        }
+
+        QPushButton#primaryButton:hover {
+            background-color: #10B981;
+        }
+
+        QPushButton#deleteButton {
+            background-color: #3B1F2A;
+            color: #F87171;
+            border: 1px solid #7F1D1D;
+            border-radius: 6px;
+            padding: 6px 12px;
+        }
+
+        QPushButton#deleteButton:hover {
+            background-color: #7F1D1D;
+            color: white;
         }
 
         QTableWidget {
